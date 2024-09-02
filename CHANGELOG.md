@@ -1,5 +1,10 @@
 # Git Repos Changelog
 
+## [Enhancement] - 2024-09-02
+- Show git status of local repo inline
+- Show(toggle) clear status details on selecting repo
+- Copy repo full path and open configured terminal emulator to paste
+
 ## [Bug Fix] - 2024-02-10
 
 - Make find command handle errors better

@@ -17,6 +17,8 @@ import { useCachedPromise } from "@raycast/utils";
 import { GetInstalledBrowsers } from "get-installed-browsers";
 import { GitRepo, Preferences, tildifyPath, GitRepoService, GitRepoType, OpenWith } from "./utils";
 import { useUsageBasedSort } from "./hooks/useUsageBasedSort";
+import { exec } from "child_process";
+import { ShowDetailsAction, HideDetailsAction, ListItemActions, useDetailedView } from "./hooks/components";
 
 const installedBrowsers = GetInstalledBrowsers().map(
   // Safari gets found in /Applications here but actually exists in
@@ -42,8 +44,11 @@ export default function Command() {
   const gitRepos = gitReposState.data?.filter((gitRepo) => !favoriteGitReposState.data?.includes(gitRepo.fullPath));
   const { data: sortedGitRepos, recordUsage } = useUsageBasedSort<GitRepo>(gitRepos || [], "gitRepos");
 
+  const [isDetailedViewEnabled, showDetailedView, hideDetailedView] = useDetailedView();
+
   return (
     <List
+      isShowingDetail={isDetailedViewEnabled}
       isLoading={gitReposState.isLoading}
       filtering={{ keepSectionOrder: true }}
       searchBarAccessory={<GitRepoPropertyDropdown repoTypes={repoTypes} onRepoTypeChange={onRepoTypeChange} />}
@@ -58,6 +63,9 @@ export default function Command() {
               repo={repo}
               isFavorite={true}
               revalidate={favoriteGitReposState.revalidate}
+              isDetailedViewEnabled={isDetailedViewEnabled}
+              showDetailedView={showDetailedView}
+              hideDetailedView={hideDetailedView}
             />
           ))}
       </List.Section>
@@ -72,11 +80,29 @@ export default function Command() {
               isFavorite={false}
               revalidate={favoriteGitReposState.revalidate}
               recordUsageHook={recordUsage}
+              isDetailedViewEnabled={isDetailedViewEnabled}
+              showDetailedView={showDetailedView}
+              hideDetailedView={hideDetailedView}
             />
           ))}
       </List.Section>
     </List>
   );
+}
+
+function openApplication(appName: string): void {
+  //   console.log(`appName:  ${JSON.stringify(appName)}`);
+  exec(`open -a "${appName}"`, (error, stdout, stderr) => {
+    if (error) {
+      console.error(`Error opening ${appName}: ${error.message}`);
+      return;
+    }
+    if (stderr) {
+      console.error(`stderr: ${stderr}`);
+      return;
+    }
+    console.log(`stdout: ${stdout}`);
+  });
 }
 
 function GitRepoListItem(props: {
@@ -85,12 +111,16 @@ function GitRepoListItem(props: {
   isFavorite: boolean;
   revalidate: () => void;
   recordUsageHook?: (id: string | number) => void;
+  isDetailedViewEnabled: boolean;
+  showDetailedView: () => void;
+  hideDetailedView: () => void;
 }): JSX.Element {
   const preferences = props.preferences;
   const repo = props.repo;
   const isFavorite = props.isFavorite;
   const tildifiedPath = tildifyPath(repo.fullPath);
   const keywords = (() => {
+    // my: keyword is just for search
     switch (preferences.searchKeys) {
       default:
       case "name":
@@ -99,15 +129,125 @@ function GitRepoListItem(props: {
         return tildifiedPath.split(path.sep);
     }
   })();
-
+  //  add tag for Status Information
+  const ac = [];
+  if (!props.isDetailedViewEnabled && repo.status) {
+    if (repo.status.added + 1 > 0) {
+      ac.push({ tag: { color: Color.Green, value: repo.status.added.toString() + " Added" } });
+    }
+    if (repo.status.modified > 0) {
+      ac.push({ tag: { color: Color.Orange, value: repo.status.modified.toString() + " Modified" } });
+    }
+    if (repo.status.deleted > 0) {
+      ac.push({ tag: { color: Color.Red, value: repo.status.deleted.toString() + " Deleted" } });
+    }
+    if (repo.status.untracked > 0) {
+      ac.push({ tag: { color: Color.SecondaryText, value: repo.status.untracked.toString() + " Untracked" } });
+    }
+  }
+  // ac.push({ text: tildifiedPath });
+  const showDetailsAction = <ShowDetailsAction showDetails={props.showDetailedView} />;
+  const hideDetailsAction = <HideDetailsAction hideDetails={props.hideDetailedView} />;
+  //   console.log(`\nisDetailedViewEnabled:   ${props.isDetailedViewEnabled}\n\n`);
   return (
     <List.Item
-      title={repo.name}
-      icon={repo.icon}
-      accessories={[{ text: tildifiedPath }]}
+      title={{ tooltip: tildifiedPath, value: repo.name }}
+      icon={{ tooltip: tildifiedPath, value: repo.icon }}
+      accessories={ac}
       keywords={keywords}
+      detail={<List.Item.Detail markdown={repo.status?.details} />}
       actions={
         <ActionPanel>
+          <ListItemActions
+            isDetailedViewEnabled={props.isDetailedViewEnabled}
+            showViewAction={showDetailsAction}
+            hideViewAction={hideDetailsAction}
+          />
+          <ActionPanel.Section>
+            <Action.CopyToClipboard
+              title={"Copy Path to Clipboard"}
+              content={"cd " + repo.fullPath}
+              shortcut={{ modifiers: ["cmd"], key: "." }}
+              onCopy={() => openApplication(preferences.terminal.name)}
+            />
+            {repo.remotes.map((remote) => {
+              let shortcut = undefined as Keyboard.Shortcut | undefined;
+              switch (remote.name) {
+                case "origin":
+                  shortcut = { modifiers: ["shift", "cmd"], key: "o" };
+                  break;
+                case "upstream":
+                  shortcut = { modifiers: ["shift", "cmd"], key: "u" };
+                  break;
+
+                default:
+                  break;
+              }
+
+              let icon = undefined as Image | undefined;
+              let host = remote.host;
+              switch (remote.host) {
+                case "github.com":
+                  icon = { source: "github-icon.png", tintColor: Color.PrimaryText };
+                  host = "GitHub";
+                  break;
+                case "gitlab.com":
+                  icon = { source: "gitlab-icon.png", tintColor: Color.PrimaryText };
+                  host = "GitLab";
+                  break;
+                case "bitbucket.org":
+                  icon = { source: "bitbucket-icon.png", tintColor: Color.PrimaryText };
+                  host = "Bitbucket";
+                  break;
+
+                default:
+                  break;
+              }
+              if (remote.host === "github.com  Not") {
+                // My Mod
+                return (
+                  <ActionPanel.Submenu
+                    title={`Open ${remote.name} on ${host}`}
+                    key={`GitHub_${remote.name}`}
+                    icon={icon ?? Icon.Globe}
+                    shortcut={shortcut}
+                  >
+                    <Action.OpenInBrowser
+                      title={`Code`}
+                      key={`code ${remote.name}`}
+                      url={remote.url}
+                      icon={{ source: "github-code-icon.png", tintColor: Color.PrimaryText }}
+                      shortcut={{ modifiers: ["shift", "cmd"], key: "c" }}
+                    />
+                    <Action.OpenInBrowser
+                      title={`Issues`}
+                      key={`issues ${remote.name}`}
+                      url={`${remote.url}/issues`}
+                      icon={{ source: "github-issues-icon.png", tintColor: Color.PrimaryText }}
+                      shortcut={{ modifiers: ["shift", "cmd"], key: "i" }}
+                    />
+                    <Action.OpenInBrowser
+                      title={`Pull Requests`}
+                      key={`pulls ${remote.name}`}
+                      url={`${remote.url}/pulls`}
+                      icon={{ source: "github-pulls-icon.png", tintColor: Color.PrimaryText }}
+                      shortcut={{ modifiers: ["shift", "cmd"], key: "p" }}
+                    />
+                  </ActionPanel.Submenu>
+                );
+              } else {
+                return (
+                  <Action.OpenInBrowser
+                    title={`Open ${remote.name} on ${host}`}
+                    key={`open remote ${remote.name}`}
+                    url={remote.url}
+                    shortcut={shortcut}
+                    icon={icon ?? Icon.Globe}
+                  />
+                );
+              }
+            })}
+          </ActionPanel.Section>
           <ActionPanel.Section>
             <GitRepoOpenAction openWith={preferences.openWith1} repo={repo} recordUsageHook={props.recordUsageHook} />
             <GitRepoOpenAction openWith={preferences.openWith2} repo={repo} recordUsageHook={props.recordUsageHook} />
@@ -172,92 +312,9 @@ function GitRepoListItem(props: {
               shortcut={{ modifiers: ["cmd", "shift"], key: "f" }}
             />
           </ActionPanel.Section>
-          <ActionPanel.Section>
-            {repo.remotes.map((remote) => {
-              let shortcut = undefined as Keyboard.Shortcut | undefined;
-              switch (remote.name) {
-                case "origin":
-                  shortcut = { modifiers: ["shift", "cmd"], key: "o" };
-                  break;
-                case "upstream":
-                  shortcut = { modifiers: ["shift", "cmd"], key: "u" };
-                  break;
-
-                default:
-                  break;
-              }
-
-              let icon = undefined as Image | undefined;
-              let host = remote.host;
-              switch (remote.host) {
-                case "github.com":
-                  icon = { source: "github-icon.png", tintColor: Color.PrimaryText };
-                  host = "GitHub";
-                  break;
-                case "gitlab.com":
-                  icon = { source: "gitlab-icon.png", tintColor: Color.PrimaryText };
-                  host = "GitLab";
-                  break;
-                case "bitbucket.org":
-                  icon = { source: "bitbucket-icon.png", tintColor: Color.PrimaryText };
-                  host = "Bitbucket";
-                  break;
-
-                default:
-                  break;
-              }
-              if (remote.host === "github.com") {
-                return (
-                  <ActionPanel.Submenu
-                    title={`Open ${remote.name} on ${host}`}
-                    key={`GitHub_${remote.name}`}
-                    icon={icon ?? Icon.Globe}
-                    shortcut={shortcut}
-                  >
-                    <Action.OpenInBrowser
-                      title={`Code`}
-                      key={`code ${remote.name}`}
-                      url={remote.url}
-                      icon={{ source: "github-code-icon.png", tintColor: Color.PrimaryText }}
-                      shortcut={{ modifiers: ["shift", "cmd"], key: "c" }}
-                    />
-                    <Action.OpenInBrowser
-                      title={`Issues`}
-                      key={`issues ${remote.name}`}
-                      url={`${remote.url}/issues`}
-                      icon={{ source: "github-issues-icon.png", tintColor: Color.PrimaryText }}
-                      shortcut={{ modifiers: ["shift", "cmd"], key: "i" }}
-                    />
-                    <Action.OpenInBrowser
-                      title={`Pull Requests`}
-                      key={`pulls ${remote.name}`}
-                      url={`${remote.url}/pulls`}
-                      icon={{ source: "github-pulls-icon.png", tintColor: Color.PrimaryText }}
-                      shortcut={{ modifiers: ["shift", "cmd"], key: "p" }}
-                    />
-                  </ActionPanel.Submenu>
-                );
-              } else {
-                return (
-                  <Action.OpenInBrowser
-                    title={`Open ${remote.name} on ${host}`}
-                    key={`open remote ${remote.name}`}
-                    url={remote.url}
-                    shortcut={shortcut}
-                    icon={icon ?? Icon.Globe}
-                  />
-                );
-              }
-            })}
-            <Action.CopyToClipboard
-              title={"Copy Path to Clipboard"}
-              content={repo.fullPath}
-              shortcut={{ modifiers: ["cmd"], key: "." }}
-            />
-          </ActionPanel.Section>
         </ActionPanel>
       }
-    />
+    ></List.Item>
   );
 }
 

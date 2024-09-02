@@ -1,5 +1,4 @@
 import { getPreferenceValues, showToast, LocalStorage, Toast } from "@raycast/api";
-
 import { homedir } from "os";
 import path from "path";
 import fs from "fs";
@@ -21,6 +20,7 @@ export interface Preferences {
   repoScanDepth?: number;
   includeSubmodules?: boolean;
   searchKeys?: string;
+  terminal: OpenWith;
   openWith1: OpenWith;
   openWith2: OpenWith;
   openWith3?: OpenWith;
@@ -35,6 +35,13 @@ export enum GitRepoType {
   Worktree = "Worktree",
 }
 
+export interface GitStatus {
+  added: number;
+  deleted: number;
+  modified: number;
+  untracked: number;
+  details: string;
+}
 export interface GitRepo {
   name: string;
   fullPath: string;
@@ -42,6 +49,7 @@ export interface GitRepo {
   defaultBrowserId: string;
   repoType: GitRepoType;
   remotes: RemoteRepo[];
+  status?: GitStatus;
 }
 
 export interface RemoteRepo {
@@ -113,6 +121,7 @@ function gitRemotes(path: string): RemoteRepo[] {
     for (const remoteName in gitConfig.remote) {
       const config = gitConfig.remote[remoteName] as GitRemote;
       const parsed = parseGithubURL(config.url);
+      //   console.log(`parsed: ${JSON.stringify(parsed)}, url:https://${parsed?.host}/${parsed?.repo}`)
       if (parsed?.host && parsed?.repo) {
         repos = repos.concat({
           name: remoteName,
@@ -227,6 +236,70 @@ async function findWorktrees(path: string, maxDepth: number): Promise<GitRepo[]>
   return foundRepos;
 }
 
+function transformGitStatusToMarkdown(status: string): string {
+  const sections: { [key: string]: string[] } = {
+    A: [],
+    M: [],
+    D: [],
+    "??": [],
+  };
+
+  // Categorize files based on status
+  status
+    .trim()
+    .split("\n")
+    .forEach((line) => {
+      const [state, ...filePath] = line.trim().split(/\s+/);
+      if (sections[state]) sections[state].push(filePath.join(" "));
+    });
+
+  // Define section titles, emojis
+  const titles = {
+    A: "🔥 Added Files",
+    M: "🔨 Modified Files",
+    D: "🚀 Deleted Files",
+    "??": "👽 Untracked Files",
+  };
+
+  // Generate Markdown content
+  const markdown = Object.entries(titles)
+    .map(([status, title]) => {
+      const files = sections[status];
+      if (files.length === 0) return ""; // Skip empty sections
+      return `## ${title} \n${files.map((file) => `- ${file}`).join("\n")}`;
+    })
+    .filter(Boolean) // Remove empty strings
+    .join("\n\n");
+
+  // Return "# NO Change" if all sections are empty
+  return markdown || "# NO Change";
+}
+
+function buildGitStatusMessage(statusString: string): GitStatus {
+  const statusLines = statusString.trim().split("\n");
+  const statusCounts = {
+    added: 0,
+    modified: 0,
+    deleted: 0,
+    untracked: 0,
+    details: transformGitStatusToMarkdown(statusString),
+  };
+
+  statusLines.forEach((line) => {
+    const trimmedLine = line.trim();
+    if (trimmedLine.startsWith("A ")) {
+      statusCounts.added++;
+    } else if (trimmedLine.startsWith("M ")) {
+      statusCounts.modified++;
+    } else if (trimmedLine.startsWith("D ")) {
+      statusCounts.deleted++;
+    } else if (trimmedLine.startsWith("?? ")) {
+      statusCounts.untracked++;
+    }
+  });
+  return statusCounts;
+}
+
 export async function findRepos(paths: string[], maxDepth: number, includeSubmodules: boolean): Promise<GitRepo[]> {
   let foundRepos: GitRepo[] = [];
   await Promise.allSettled(
@@ -292,5 +365,24 @@ export async function findRepos(paths: string[], maxDepth: number, includeSubmod
     // ignore, repo.defaultBrowserId will stay as ""
   }
 
+  // Get git status for each repo
+  try {
+    const statusPromises = foundRepos.map(async (repo) => {
+      try {
+        const { stdout } = await execp("git status --short", { cwd: repo.fullPath });
+        repo.status = buildGitStatusMessage(stdout.trim() ? stdout : "Clean");
+        console.log(
+          `${repo.status.added} added, ${repo.status.modified} modified, ${repo.status.deleted} deleted, ${repo.status.untracked} untracked\n\n`
+        );
+        //   console.log(`repo ${repo.name} status: ${repo.status_str}\n\n`)
+      } catch (e) {
+        console.log(`Status Error for repo ${repo.name}: `, e);
+      }
+    });
+    await Promise.all(statusPromises);
+  } catch (e) {
+    console.log("General Status Error: ", e);
+  }
+  console.log(`foundRepos cout = ${foundRepos.length}`);
   return foundRepos;
 }

@@ -1,6 +1,6 @@
 {
   "$schema": "https://www.raycast.com/schemas/extension.json",
-  "name": "git-repos",
+  "name": "local-git-repos",
   "title": "Git Repos",
   "description": "Quickly access your local git repositories and open them in your favorite editor or any app",
   "icon": "git-repos-icon.png",
@@ -8,7 +8,8 @@
   "contributors": [
     "nitishpdmn",
     "go_dima",
-    "cameronsstone"
+    "cameronsstone",
+    "Wica3685"
   ],
   "categories": [
     "Developer Tools",
@@ -19,7 +20,7 @@
   "commands": [
     {
       "name": "list",
-      "title": "List Repos",
+      "title": "List My Local Git Repos",
       "description": "Quickly access your local git repositories and open them in your favorite editor or any app",
       "mode": "view"
     }
@@ -91,6 +92,14 @@
       "description": "What to match against when searching"
     },
     {
+      "name": "terminal",
+      "type": "appPicker",
+      "required": true,
+      "title": "Set your commonly-used Terminal Emulator (e.g.iTerm2)",
+      "description": "Terminal to git repo",
+      "default": "Terminal"
+    },
+    {
       "name": "openWith1",
       "type": "appPicker",
       "required": true,
@@ -152,6 +161,7 @@
   "scripts": {
     "build": "ray build -e dist",
     "dev": "ray develop",
+    "depr": "NODE_OPTIONS=--trace-deprecation ray develop",
     "fix-lint": "ray lint --fix",
     "lint": "ray lint",
     "publish": "npx @raycast/api@latest publish"
