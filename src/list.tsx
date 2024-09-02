@@ -132,7 +132,7 @@ function GitRepoListItem(props: {
   //  add tag for Status Information
   const ac = [];
   if (!props.isDetailedViewEnabled && repo.status) {
-    if (repo.status.added + 1 > 0) {
+    if (repo.status.added > 0) {
       ac.push({ tag: { color: Color.Green, value: repo.status.added.toString() + " Added" } });
     }
     if (repo.status.modified > 0) {
@@ -143,6 +143,9 @@ function GitRepoListItem(props: {
     }
     if (repo.status.untracked > 0) {
       ac.push({ tag: { color: Color.SecondaryText, value: repo.status.untracked.toString() + " Untracked" } });
+    }
+    if (ac.length == 0) {
+      ac.push({ tag: { color: Color.Purple, value: "😎 Clean" } });
     }
   }
   // ac.push({ text: tildifiedPath });

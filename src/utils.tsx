@@ -71,6 +71,7 @@ export class GitRepoService {
 
   static async gitRepos(): Promise<GitRepo[]> {
     const preferences = getPreferences();
+
     if (preferences.repoScanPath.length == 0) {
       showToast(Toast.Style.Failure, "", "Directories to scan has not been defined in settings");
       return [];
@@ -318,6 +319,7 @@ export async function findRepos(paths: string[], maxDepth: number, includeSubmod
         return [];
       }
       const repoPaths = stdout.split("\n").filter((e) => e);
+      console.log(`repoPath = ${JSON.stringify(repoPaths)}`);
       const repos = parseRepoPaths(path, repoPaths, false);
       if (includeSubmodules) {
         let subRepoPaths: string[] = [];
