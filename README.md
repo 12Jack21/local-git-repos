@@ -25,7 +25,7 @@ Entrance:
 ---
 Main View: 
 
-![core](img/core1.png)  ![core2](img/core2.png)
+![core](img/core1.png)  ![core2](img/core2.png)  ![core3](img/core3.png)
 
 ---
 You can hit `Enter` to toggle status details in right window: 
